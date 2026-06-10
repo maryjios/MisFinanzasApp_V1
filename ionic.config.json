@@ -1,0 +1,7 @@
+{
+  "name": "MisFinanzasApp",
+  "integrations": {
+    "capacitor": {}
+  },
+  "type": "angular"
+}

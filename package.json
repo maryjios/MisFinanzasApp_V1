@@ -1,0 +1,40 @@
+{
+  "name": "mis-finanzas-app",
+  "version": "1.0.0",
+  "author": "Mary Luz Jiménez Ospina",
+  "homepage": "https://ionicframework.com/",
+  "scripts": {
+    "ng": "ng",
+    "start": "ng serve --host localhost --port 8100",
+    "build": "ng build",
+    "watch": "ng build --watch --configuration development",
+    "ionic:serve": "ionic serve"
+  },
+  "private": true,
+  "dependencies": {
+    "@angular/animations": "^17.3.12",
+    "@angular/common": "^17.3.12",
+    "@angular/compiler": "^17.3.12",
+    "@angular/core": "^17.3.12",
+    "@angular/forms": "^17.3.12",
+    "@angular/platform-browser": "^17.3.12",
+    "@angular/platform-browser-dynamic": "^17.3.12",
+    "@angular/router": "^17.3.12",
+    "@capacitor/android": "^8.4.0",
+    "@capacitor/cli": "^8.4.0",
+    "@capacitor/core": "^8.4.0",
+    "@ionic/angular": "^7.8.6",
+    "ionicons": "^7.4.0",
+    "rxjs": "~7.8.1",
+    "tslib": "^2.6.2",
+    "zone.js": "~0.14.10"
+  },
+  "devDependencies": {
+    "@angular-devkit/build-angular": "^17.3.12",
+    "@angular/cli": "^17.3.12",
+    "@angular/compiler-cli": "^17.3.12",
+    "@ionic/angular-toolkit": "^11.0.1",
+    "typescript": "~5.4.5"
+  },
+  "description": "MisFinanzasApp - avance 70% Ionic Angular"
+}

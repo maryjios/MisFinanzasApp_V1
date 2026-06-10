@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+www/
+dist/
+
+# Ionic/Angular caches
+.angular/
+.ionic/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Testing / coverage
+coverage/
+
+# Temporary files
+*.tmp
+*.temp
