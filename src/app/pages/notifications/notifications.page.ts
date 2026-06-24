@@ -25,11 +25,6 @@ export class NotificationsPage {
   constructor(private finance: FinanceService) {}
 
   ionViewWillEnter() {
-    const today = new Date().toISOString().slice(0, 10);
-    const hasTodayMovement = this.finance.getMovements().some(item => item.date === today);
-    if (!hasTodayMovement) {
-      this.finance.addNotification('Recordatorio diario', 'Recuerda registrar tus movimientos de hoy para mantener tu balance actualizado.', 'info');
-    }
     this.loadNotifications();
   }
 
@@ -48,7 +43,7 @@ export class NotificationsPage {
     return {
       title: item.title,
       text: item.text,
-      time: item.createdAt.slice(0, 10),
+      time: this.finance.formatDateDisplay(item.createdAt),
       color: item.type === 'alert' ? '#ffe7e7' : '#e8f8eb',
       icon: item.type === 'alert' ? 'warning-outline' : 'information-outline'
     };

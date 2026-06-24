@@ -2,6 +2,7 @@ import { CommonModule } from '@angular/common';
 import { Component } from '@angular/core';
 import { RouterModule } from '@angular/router';
 import { IonicModule } from '@ionic/angular';
+import { Subscription } from 'rxjs';
 import { BottomNavComponent } from '../../components/bottom-nav/bottom-nav.component';
 import { FinanceService } from '../../services/finance.service';
 
@@ -10,7 +11,7 @@ import { FinanceService } from '../../services/finance.service';
   <div class="header-row"><button class="icon-btn" routerLink="/dashboard"><ion-icon name="arrow-back-outline"></ion-icon></button><h1 class="header-title">Reportes</h1><button class="icon-btn"><ion-icon name="filter-outline"></ion-icon></button></div>
   <section class="content-pad">
     <div class="tabs"><button class="tab" [class.active]="tab==='resumen'" (click)="tab='resumen'">Resumen</button><button class="tab" [class.active]="tab==='gastos'" (click)="tab='gastos'">Gastos</button><button class="tab" [class.active]="tab==='ingresos'" (click)="tab='ingresos'">Ingresos</button></div>
-    <div class="row" style="justify-content:center;margin-bottom:26px"><b>Mes actual</b><ion-icon name="chevron-down-outline"></ion-icon></div>
+    <div class="row" style="justify-content:center;margin-bottom:26px"><b>{{ selectedMonthLabel }}</b><ion-icon name="chevron-down-outline"></ion-icon></div>
     <h3 class="section-title">Resumen mensual</h3>
     <div class="card" style="margin-top:10px" *ngIf="summary.count === 0">
       <p class="muted" style="margin:0">Aún no hay datos suficientes para generar reportes.</p>
@@ -50,15 +51,26 @@ export class ReportsPage {
   expenseByCategory: Array<{ category: string; amount: number; percent: number; color: string }> = [];
   pieGradient = 'conic-gradient(#169a39 0 100%)';
   lastMonths: Array<{ label: string; incomePercent: number; expensePercent: number }> = [];
+  selectedMonth = this.currentMonthKey();
   private readonly currency = 'COP';
   private chartColors = ['#169a39', '#3368cc', '#ff8b17', '#8b39c8', '#1b9c78', '#ee1b1b'];
+  private dataSubscription?: Subscription;
 
   constructor(private finance: FinanceService) {}
 
   ionViewWillEnter() {
-    this.summary = this.finance.getMonthlySummary();
-    this.buildCategoryChart();
-    this.buildMonthlyBars();
+    this.alignToLatestMovementMonth();
+    this.reloadReportData();
+    this.dataSubscription?.unsubscribe();
+    this.dataSubscription = this.finance.dataChanged$.subscribe(() => {
+      this.alignToLatestMovementMonth();
+      this.reloadReportData();
+    });
+  }
+
+  ionViewDidLeave() {
+    this.dataSubscription?.unsubscribe();
+    this.dataSubscription = undefined;
   }
 
   formatCurrency(value: number): string {
@@ -69,9 +81,26 @@ export class ReportsPage {
     }
   }
 
+  get selectedMonthLabel(): string {
+    const [yearText, monthText] = this.selectedMonth.split('-');
+    const year = Number(yearText);
+    const month = Number(monthText);
+    if (!year || !month) return 'Mes actual';
+
+    const labels = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    return `${labels[month - 1]} ${year}`;
+  }
+
+  private reloadReportData() {
+    this.summary = this.finance.getMonthlySummary(this.selectedMonth);
+    this.buildCategoryChart();
+    this.buildMonthlyBars();
+  }
+
   private buildCategoryChart() {
-    const month = new Date().toISOString().slice(0, 7);
-    const expenses = this.finance.getMovements().filter(m => m.type === 'expense' && m.date.startsWith(month));
+    const expenses = this.finance
+      .getMovements()
+      .filter(m => m.type === 'expense' && this.extractMonthKey(m.date) === this.selectedMonth);
     const total = expenses.reduce((sum, item) => sum + item.amount, 0);
     if (!total) {
       this.expenseByCategory = [];
@@ -113,11 +142,11 @@ export class ReportsPage {
     for (let i = 2; i >= 0; i--) {
       const d = new Date();
       d.setMonth(d.getMonth() - i);
-      monthKeys.push(d.toISOString().slice(0, 7));
+      monthKeys.push(this.currentMonthKey(d));
     }
 
     const monthly = monthKeys.map(key => {
-      const list = movements.filter(m => m.date.startsWith(key));
+      const list = movements.filter(m => this.extractMonthKey(m.date) === key);
       const income = list.filter(m => m.type === 'income').reduce((sum, m) => sum + m.amount, 0);
       const expense = list.filter(m => m.type === 'expense').reduce((sum, m) => sum + m.amount, 0);
       return { key, income, expense };
@@ -129,5 +158,52 @@ export class ReportsPage {
       incomePercent: Math.round((m.income / maxValue) * 100),
       expensePercent: Math.round((m.expense / maxValue) * 100)
     }));
+  }
+
+  private alignToLatestMovementMonth() {
+    const latest = this.finance.getMovements()[0];
+    if (!latest) {
+      this.selectedMonth = this.currentMonthKey();
+      return;
+    }
+
+    const key = this.extractMonthKey(latest.date);
+    this.selectedMonth = key || this.currentMonthKey();
+  }
+
+  private currentMonthKey(base = new Date()): string {
+    return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  private extractMonthKey(value: string): string {
+    const text = value.trim();
+
+    const isoDate = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoDate) {
+      const month = Number(isoDate[2]);
+      if (month >= 1 && month <= 12) return `${isoDate[1]}-${isoDate[2]}`;
+    }
+
+    const isoMonth = text.match(/^(\d{4})-(\d{2})$/);
+    if (isoMonth) {
+      const month = Number(isoMonth[2]);
+      if (month >= 1 && month <= 12) return `${isoMonth[1]}-${isoMonth[2]}`;
+    }
+
+    const slashDate = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (slashDate) {
+      const day = Number(slashDate[1]);
+      const month = Number(slashDate[2]);
+      if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+        return `${slashDate[3]}-${String(month).padStart(2, '0')}`;
+      }
+    }
+
+    const parsed = new Date(text);
+    if (!Number.isNaN(parsed.getTime())) {
+      return this.currentMonthKey(parsed);
+    }
+
+    return '';
   }
 }

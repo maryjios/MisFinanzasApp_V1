@@ -5,10 +5,10 @@
   "homepage": "https://ionicframework.com/",
   "scripts": {
     "ng": "ng",
-    "start": "ng serve --host localhost --port 8100",
+    "start": "ng serve --host localhost --port 8100 --open false",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "ionic:serve": "ionic serve"
+    "ionic:serve": "ng serve --host localhost --port 8100 --open false"
   },
   "private": true,
   "dependencies": {
@@ -23,6 +23,7 @@
     "@capacitor/android": "^8.4.0",
     "@capacitor/cli": "^8.4.0",
     "@capacitor/core": "^8.4.0",
+    "@capacitor/preferences": "^8.0.1",
     "@ionic/angular": "^7.8.6",
     "ionicons": "^7.4.0",
     "rxjs": "~7.8.1",

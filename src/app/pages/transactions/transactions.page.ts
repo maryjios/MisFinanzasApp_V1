@@ -80,7 +80,7 @@ export class TransactionsPage {
       title: movement.category,
       type: isIncome ? 'Ingreso' : 'Gasto',
       amount: `${isIncome ? '+' : '-'} ${this.formatCurrency(movement.amount)}`,
-      time: movement.date,
+      time: this.finance.formatDateDisplay(movement.date),
       icon: isIncome ? 'add-circle' : 'remove-circle',
       color: isIncome ? '#0b8f2a' : '#ee1b1b',
       bg: isIncome ? '#e8f8eb' : '#ffe7e7',

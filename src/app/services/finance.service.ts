@@ -1,4 +1,6 @@
 import { Injectable } from '@angular/core';
+import { Preferences } from '@capacitor/preferences';
+import { Subject } from 'rxjs';
 
 export type MovementType = 'income' | 'expense';
 
@@ -42,11 +44,14 @@ export class FinanceService {
 
   private readonly defaultCategories = ['Alimentacion', 'Transporte', 'Entretenimiento', 'Ahorro'];
   private readonly incomeCategories = ['Salario', 'Freelance', 'Venta', 'Ahorro'];
-  private readonly expenseModuleEnabled = false;
-  private readonly budgetsModuleEnabled = false;
+  private readonly expenseModuleEnabled = true;
+  private readonly budgetsModuleEnabled = true;
+  private readonly dataChanged = new Subject<void>();
+
+  readonly dataChanged$ = this.dataChanged.asObservable();
 
   constructor() {
-    this.removeDisabledModuleData();
+    void this.hydrateCategoriesFromNative();
   }
 
   getSettings(): AppSettings {
@@ -72,23 +77,26 @@ export class FinanceService {
       cutoffDay: settings.cutoffDay,
       notificationsEnabled: settings.notificationsEnabled
     }));
+    this.notifyDataChanged();
   }
 
   getCategories(type: MovementType): string[] {
     const custom = this.getCustomCategories();
     if (type === 'income') {
-      return [...this.incomeCategories, ...custom].sort((a, b) => a.localeCompare(b));
+      return this.uniqueCategoryList([...this.incomeCategories, ...custom]);
     }
-    return [...this.defaultCategories, ...custom].sort((a, b) => a.localeCompare(b));
+    return this.uniqueCategoryList([...this.defaultCategories, ...custom]);
   }
 
-  addCustomCategory(name: string): boolean {
-    const value = name.trim();
+  async addCustomCategory(name: string): Promise<boolean> {
+    const value = this.cleanCategoryName(name);
     if (!value) return false;
     const current = this.getCustomCategories();
-    if (current.some(c => c.toLowerCase() === value.toLowerCase())) return false;
-    const next = [...current, value].sort((a, b) => a.localeCompare(b));
+    if (current.some(c => this.normalizeCategoryKey(c) === this.normalizeCategoryKey(value))) return false;
+    const next = this.uniqueCategoryList([...current, value]);
     localStorage.setItem(this.categoriesKey, JSON.stringify(next));
+    await this.persistCategoriesToNative(next);
+    this.notifyDataChanged();
     return true;
   }
 
@@ -96,7 +104,8 @@ export class FinanceService {
     const raw = localStorage.getItem(this.movementKey);
     if (!raw) return [];
     try {
-      return (JSON.parse(raw) as Movement[]).sort((a, b) => b.date.localeCompare(a.date));
+      return (JSON.parse(raw) as Movement[])
+        .sort((a, b) => this.toTimestamp(b.date) - this.toTimestamp(a.date));
     } catch {
       return [];
     }
@@ -107,16 +116,29 @@ export class FinanceService {
       return { ...payload, id: 'disabled_expense' };
     }
 
-    const item: Movement = { ...payload, id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}` };
+    const item: Movement = {
+      ...payload,
+      date: this.normalizeDateValue(payload.date),
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    };
     const current = this.getMovements();
     const next = [item, ...current];
     localStorage.setItem(this.movementKey, JSON.stringify(next));
-    this.createBudgetAlertNotifications(item.date.slice(0, 7));
+    this.createBudgetAlertNotifications(this.toMonthKey(item.date) || this.currentMonth());
+    this.notifyDataChanged();
     return item;
   }
 
   getMonthlySummary(month = this.currentMonth()): { income: number; expense: number; balance: number; count: number } {
-    const list = this.getMovements().filter(m => m.date.startsWith(month));
+    const monthKey = this.toMonthKey(month);
+    const list = this.getMovements().filter(m => this.toMonthKey(m.date) === monthKey);
+    const income = list.filter(m => m.type === 'income').reduce((sum, m) => sum + m.amount, 0);
+    const expense = list.filter(m => m.type === 'expense').reduce((sum, m) => sum + m.amount, 0);
+    return { income, expense, balance: income - expense, count: list.length };
+  }
+
+  getGlobalSummary(): { income: number; expense: number; balance: number; count: number } {
+    const list = this.getMovements();
     const income = list.filter(m => m.type === 'income').reduce((sum, m) => sum + m.amount, 0);
     const expense = list.filter(m => m.type === 'expense').reduce((sum, m) => sum + m.amount, 0);
     return { income, expense, balance: income - expense, count: list.length };
@@ -125,11 +147,12 @@ export class FinanceService {
   getBudgets(month = this.currentMonth()): Budget[] {
     if (!this.budgetsModuleEnabled) return [];
 
+    const monthKey = this.toMonthKey(month);
     const raw = localStorage.getItem(this.budgetKey);
     if (!raw) return [];
     try {
       return (JSON.parse(raw) as Budget[])
-        .filter(b => b.month === month)
+        .filter(b => this.toMonthKey(b.month) === monthKey)
         .sort((a, b) => a.category.localeCompare(b.category));
     } catch {
       return [];
@@ -139,29 +162,51 @@ export class FinanceService {
   saveBudget(category: string, limit: number, month = this.currentMonth()): void {
     if (!this.budgetsModuleEnabled) return;
 
+    const monthKey = this.toMonthKey(month);
+    if (!monthKey) return;
+
     const raw = localStorage.getItem(this.budgetKey);
     const all = raw ? (JSON.parse(raw) as Budget[]) : [];
-    const trimmedCategory = category.trim();
-    const existing = all.find(b => b.month === month && b.category.toLowerCase() === trimmedCategory.toLowerCase());
+    const trimmedCategory = this.cleanCategoryName(category);
+    const targetCategoryKey = this.normalizeCategoryKey(trimmedCategory);
+    const existing = all.find(b => this.toMonthKey(b.month) === monthKey && this.normalizeCategoryKey(b.category) === targetCategoryKey);
     if (existing) {
       existing.limit = limit;
+      existing.month = monthKey;
     } else {
-      all.push({ id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, category: trimmedCategory, limit, month });
+      all.push({ id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, category: trimmedCategory, limit, month: monthKey });
     }
     localStorage.setItem(this.budgetKey, JSON.stringify(all));
-    this.createBudgetAlertNotifications(month);
+    this.createBudgetAlertNotifications(monthKey);
+    this.notifyDataChanged();
   }
 
   getBudgetProgress(month = this.currentMonth()): Array<{ category: string; limit: number; used: number; percent: number }> {
     if (!this.budgetsModuleEnabled) return [];
 
+    const monthKey = this.toMonthKey(month);
     const budgets = this.getBudgets(month);
-    const expenses = this.getMovements().filter(m => m.type === 'expense' && m.date.startsWith(month));
+    const expenses = this.getMovements().filter(m => m.type === 'expense' && this.toMonthKey(m.date) === monthKey);
     return budgets.map(b => {
-      const used = expenses.filter(m => m.category.toLowerCase() === b.category.toLowerCase()).reduce((sum, m) => sum + m.amount, 0);
+      const budgetCategoryKey = this.normalizeCategoryKey(b.category);
+      const used = expenses
+        .filter(m => this.normalizeCategoryKey(m.category) === budgetCategoryKey)
+        .reduce((sum, m) => sum + m.amount, 0);
       const percent = b.limit > 0 ? Math.round((used / b.limit) * 100) : 0;
       return { category: b.category, limit: b.limit, used, percent };
     });
+  }
+
+  formatDateDisplay(value: string): string {
+    const text = value.trim();
+    const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
+
+    const normalized = this.normalizeDateValue(text);
+    const normalizedIso = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (normalizedIso) return `${normalizedIso[3]}/${normalizedIso[2]}/${normalizedIso[1]}`;
+
+    return text;
   }
 
   getNotifications(): AppNotification[] {
@@ -184,16 +229,101 @@ export class FinanceService {
       createdAt: new Date().toISOString()
     };
     localStorage.setItem(this.notificationsKey, JSON.stringify([item, ...current]));
+    this.notifyDataChanged();
   }
 
   private getCustomCategories(): string[] {
     const raw = localStorage.getItem(this.categoriesKey);
     if (!raw) return [];
+
     try {
-      return JSON.parse(raw) as string[];
+      const parsed = JSON.parse(raw) as unknown;
+      const normalized = this.normalizeStoredCategoryData(parsed);
+      const next = this.uniqueCategoryList(normalized);
+      if (JSON.stringify(next) !== raw) {
+        localStorage.setItem(this.categoriesKey, JSON.stringify(next));
+        void this.persistCategoriesToNative(next);
+      }
+      return next;
     } catch {
-      return [];
+      // Compatibilidad con datos heredados guardados como texto plano o CSV.
+      const fallback = this.uniqueCategoryList(raw.split(',').map(item => this.cleanCategoryName(item)));
+      if (fallback.length > 0) {
+        localStorage.setItem(this.categoriesKey, JSON.stringify(fallback));
+        void this.persistCategoriesToNative(fallback);
+      }
+      return fallback;
     }
+  }
+
+  private async hydrateCategoriesFromNative(): Promise<void> {
+    try {
+      const { value } = await Preferences.get({ key: this.categoriesKey });
+      if (!value) return;
+
+      const local = this.getCustomCategories();
+      const native = this.parseNativeCategories(value);
+      const merged = this.uniqueCategoryList([...local, ...native]);
+
+      if (merged.length === 0) return;
+      if (JSON.stringify(merged) === JSON.stringify(local)) return;
+
+      localStorage.setItem(this.categoriesKey, JSON.stringify(merged));
+      this.notifyDataChanged();
+    } catch {
+      // Ignora fallas de lectura nativa y mantiene localStorage como respaldo.
+    }
+  }
+
+  private async persistCategoriesToNative(categories: string[]): Promise<void> {
+    try {
+      await Preferences.set({ key: this.categoriesKey, value: JSON.stringify(categories) });
+    } catch {
+      // Ignora fallas de escritura nativa y mantiene localStorage como respaldo.
+    }
+  }
+
+  private parseNativeCategories(value: string): string[] {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return this.uniqueCategoryList(this.normalizeStoredCategoryData(parsed));
+    } catch {
+      return this.uniqueCategoryList(value.split(',').map(item => this.cleanCategoryName(item)));
+    }
+  }
+
+  private normalizeStoredCategoryData(value: unknown): string[] {
+    if (!Array.isArray(value)) return [];
+
+    const list: string[] = [];
+    for (const item of value) {
+      if (typeof item === 'string') {
+        list.push(this.cleanCategoryName(item));
+      }
+    }
+    return list;
+  }
+
+  private uniqueCategoryList(list: string[]): string[] {
+    const map = new Map<string, string>();
+    for (const item of list) {
+      const clean = this.cleanCategoryName(item);
+      if (!clean) continue;
+      const key = this.normalizeCategoryKey(clean);
+      if (!map.has(key)) map.set(key, clean);
+    }
+    return [...map.values()].sort((a, b) => a.localeCompare(b));
+  }
+
+  private cleanCategoryName(value: string): string {
+    return value.trim().replace(/\s+/g, ' ');
+  }
+
+  private normalizeCategoryKey(value: string): string {
+    return this.cleanCategoryName(value)
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
   }
 
   private createBudgetAlertNotifications(month = this.currentMonth()): void {
@@ -220,7 +350,7 @@ export class FinanceService {
   }
 
   private currentMonth(): string {
-    return new Date().toISOString().slice(0, 7);
+    return this.localIsoDate().slice(0, 7);
   }
 
   private wasAlreadyNotified(key: string): boolean {
@@ -231,14 +361,98 @@ export class FinanceService {
     localStorage.setItem(`misfinanzas_notice_${key}`, '1');
   }
 
-  private removeDisabledModuleData(): void {
-    if (!this.expenseModuleEnabled) {
-      const onlyIncome = this.getMovements().filter(item => item.type === 'income');
-      localStorage.setItem(this.movementKey, JSON.stringify(onlyIncome));
+  private notifyDataChanged(): void {
+    this.dataChanged.next();
+  }
+
+  private toMonthKey(value: string): string {
+    const normalizedDate = this.normalizeDateValue(value);
+    const isoDate = normalizedDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoDate) {
+      const year = Number(isoDate[1]);
+      const month = Number(isoDate[2]);
+      const day = Number(isoDate[3]);
+      if (this.isValidDateParts(year, month, day)) {
+        return `${isoDate[1]}-${isoDate[2]}`;
+      }
     }
 
-    if (!this.budgetsModuleEnabled) {
-      localStorage.removeItem(this.budgetKey);
+    const isoMonth = value.trim().match(/^(\d{4})-(\d{2})$/);
+    if (isoMonth) {
+      const month = Number(isoMonth[2]);
+      if (month >= 1 && month <= 12) {
+        return `${isoMonth[1]}-${isoMonth[2]}`;
+      }
     }
+
+    return '';
+  }
+
+  private normalizeDateValue(value: string): string {
+    const text = value.trim();
+
+    const isoDate = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoDate) {
+      const year = Number(isoDate[1]);
+      const month = Number(isoDate[2]);
+      const day = Number(isoDate[3]);
+
+      if (this.isValidDateParts(year, month, day)) {
+        return `${isoDate[1]}-${isoDate[2]}-${isoDate[3]}`;
+      }
+
+      // Recupera fechas guardadas por error como YYYY-DD-MM.
+      if (this.isValidDateParts(year, day, month)) {
+        return `${year}-${String(day).padStart(2, '0')}-${String(month).padStart(2, '0')}`;
+      }
+    }
+
+    const slashDate = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (slashDate) {
+      const first = Number(slashDate[1]);
+      const second = Number(slashDate[2]);
+      const year = slashDate[3];
+
+      let day = first;
+      let month = second;
+
+      // Si la segunda parte es > 12, viene como MM/DD/YYYY.
+      if (second > 12 && first <= 12) {
+        day = second;
+        month = first;
+      }
+
+      if (!this.isValidDateParts(Number(year), month, day)) {
+        return text;
+      }
+
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+
+    const parsed = new Date(text);
+    if (!Number.isNaN(parsed.getTime())) {
+      return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+    }
+
+    return text;
+  }
+
+  private toTimestamp(value: string): number {
+    const normalized = this.normalizeDateValue(value);
+    const parsed = new Date(normalized);
+    return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+  }
+
+  private isValidDateParts(year: number, month: number, day: number): boolean {
+    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return false;
+    if (month < 1 || month > 12) return false;
+    if (day < 1 || day > 31) return false;
+
+    const test = new Date(year, month - 1, day);
+    return test.getFullYear() === year && test.getMonth() === month - 1 && test.getDate() === day;
+  }
+
+  private localIsoDate(date = new Date()): string {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   }
 }

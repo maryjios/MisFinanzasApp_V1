@@ -22,6 +22,7 @@ ion-content { --background: #eef5ef; }
   background: #fff;
   overflow-x: hidden;
   position: relative;
+  padding-top: env(safe-area-inset-top);
 }
 @media (min-width: 700px) {
   .phone-page {

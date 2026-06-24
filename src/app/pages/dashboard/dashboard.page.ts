@@ -2,6 +2,7 @@ import { CommonModule } from '@angular/common';
 import { Component } from '@angular/core';
 import { RouterModule } from '@angular/router';
 import { IonicModule } from '@ionic/angular';
+import { Subscription } from 'rxjs';
 import { BottomNavComponent } from '../../components/bottom-nav/bottom-nav.component';
 import { AuthService } from '../../services/auth.service';
 import { FinanceService, Movement } from '../../services/finance.service';
@@ -88,12 +89,18 @@ export class DashboardPage {
   summary = { income: 0, expense: 0, balance: 0, count: 0 };
   recent: Movement[] = [];
   private readonly currency = 'COP';
+  private dataSubscription?: Subscription;
 
-  constructor(private auth: AuthService, private finance: FinanceService) {}
+  constructor(private auth: AuthService, private finance: FinanceService) {
+    this.dataSubscription = this.finance.dataChanged$.subscribe(() => this.loadDashboardData());
+  }
 
   ionViewWillEnter() {
-    this.summary = this.finance.getMonthlySummary();
-    this.recent = this.finance.getMovements().slice(0, 5);
+    this.loadDashboardData();
+  }
+
+  ngOnDestroy() {
+    this.dataSubscription?.unsubscribe();
   }
 
   formatCurrency(value: number): string {
@@ -107,5 +114,10 @@ export class DashboardPage {
   formatAmount(movement: Movement): string {
     const sign = movement.type === 'income' ? '+' : '-';
     return `${sign} ${this.formatCurrency(movement.amount)}`;
+  }
+
+  private loadDashboardData() {
+    this.summary = this.finance.getGlobalSummary();
+    this.recent = this.finance.getMovements().slice(0, 5);
   }
 }

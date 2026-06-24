@@ -70,8 +70,8 @@ export class SettingsPage {
     this.messageOk = true;
   }
 
-  addCategory() {
-    const ok = this.finance.addCustomCategory(this.newCategory);
+  async addCategory() {
+    const ok = await this.finance.addCustomCategory(this.newCategory);
     this.message = ok ? 'Categoría personalizada agregada.' : 'No se pudo agregar la categoría.';
     this.messageOk = ok;
     if (ok) {

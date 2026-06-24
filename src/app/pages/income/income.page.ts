@@ -14,6 +14,7 @@ import { FinanceService } from '../../services/finance.service';
     <label class="label">Categoría</label><div class="input-box"><ion-icon name="cash-outline"></ion-icon><select [(ngModel)]="category"><option value="" disabled>Selecciona una categoría</option><option *ngFor="let item of categories" [value]="item">{{ item }}</option></select></div>
     <div class="row" style="margin-top:8px;gap:8px"><div class="input-box" style="flex:1"><input [(ngModel)]="newCategory" placeholder="Nueva categoría"></div><button class="btn-outline" style="width:130px;min-height:46px" (click)="addCategory()">Agregar</button></div>
     <label class="label">Fecha</label><div class="input-box"><ion-icon name="calendar-outline"></ion-icon><input [(ngModel)]="date" type="date"></div>
+    <small class="muted">{{ formattedDate }}</small>
     <label class="label">Descripción (opcional)</label><div class="input-box"><input [(ngModel)]="description" placeholder="Escribe una descripción"></div>
     <button class="btn-primary" style="margin-top:36px" (click)="save()">Guardar ingreso</button>
     <div *ngIf="message" class="alert" [class.ok]="messageOk">{{ message }}</div>
@@ -22,7 +23,7 @@ import { FinanceService } from '../../services/finance.service';
 export class IncomePage {
   amount = '';
   category = '';
-  date = new Date().toISOString().slice(0, 10);
+  date = this.localIsoDate();
   description = '';
   newCategory = '';
   categories: string[] = [];
@@ -33,18 +34,27 @@ export class IncomePage {
     this.categories = this.finance.getCategories('income');
   }
 
-  addCategory() {
-    const ok = this.finance.addCustomCategory(this.newCategory);
+  ionViewWillEnter() {
+    this.categories = this.finance.getCategories('income');
+    if (!this.category && this.categories.length > 0) {
+      this.category = this.categories[0];
+    }
+  }
+
+  async addCategory() {
+    const createdName = this.newCategory.trim();
+    const ok = await this.finance.addCustomCategory(createdName);
     this.message = ok ? 'Categoría agregada correctamente.' : 'No se pudo agregar la categoría.';
     this.messageOk = ok;
     if (ok) {
       this.newCategory = '';
       this.categories = this.finance.getCategories('income');
+      this.category = createdName;
     }
   }
 
   save() {
-    const amount = Number(this.amount);
+    const amount = this.parseMoneyValue(this.amount);
     if (!amount || amount <= 0 || !this.category || !this.date) {
       this.message = 'Completa monto, categoría y fecha con valores válidos.';
       this.messageOk = false;
@@ -62,5 +72,27 @@ export class IncomePage {
     this.message = 'Ingreso registrado correctamente.';
     this.messageOk = true;
     setTimeout(() => this.router.navigateByUrl('/dashboard'), 500);
+  }
+
+  get formattedDate(): string {
+    return this.finance.formatDateDisplay(this.date);
+  }
+
+  private localIsoDate(date = new Date()): string {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  }
+
+  private parseMoneyValue(value: string): number {
+    const text = value.trim();
+    if (!text) return 0;
+
+    const normalized = text
+      .replace(/\s+/g, '')
+      .replace(/\.(?=\d{3}(\D|$))/g, '')
+      .replace(/,(?=\d{3}(\D|$))/g, '')
+      .replace(',', '.');
+
+    const parsed = Number(normalized.replace(/[^0-9.-]/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
   }
 }
