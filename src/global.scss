@@ -22,7 +22,7 @@ ion-content { --background: #eef5ef; }
   background: #fff;
   overflow-x: hidden;
   position: relative;
-  padding-top: env(safe-area-inset-top);
+  padding-top: max(env(safe-area-inset-top), var(--ion-safe-area-top, 0px));
 }
 @media (min-width: 700px) {
   .phone-page {
@@ -75,7 +75,7 @@ ion-content { --background: #eef5ef; }
 .quick { text-align:center; padding:12px 6px; border:1px solid #e5e5e5; border-radius:12px; background:#fff; font-size:12px; font-weight:700; color:#111; text-decoration:none; }
 .quick ion-icon { display:block; margin:0 auto 6px; font-size:26px; color:#0b8f2a; }
 .quick.red ion-icon { color:#e92727; }
-.bottom-nav { position:fixed; left:50%; transform:translateX(-50%); bottom:0; width:100%; max-width:430px; height:70px; background:#fff; border-top:1px solid #e5e5e5; display:grid; grid-template-columns:repeat(5,1fr); z-index:20; }
+.bottom-nav { position:fixed; left:50%; transform:translateX(-50%); bottom:0; width:100%; max-width:430px; height:calc(70px + max(env(safe-area-inset-bottom), var(--ion-safe-area-bottom, 0px))); padding-bottom:max(env(safe-area-inset-bottom), var(--ion-safe-area-bottom, 0px)); background:#fff; border-top:1px solid #e5e5e5; display:grid; grid-template-columns:repeat(5,1fr); z-index:20; }
 @media (min-width:700px){ .bottom-nav{ bottom:16px; border-radius:0 0 28px 28px; } }
 .nav-item { display:flex; flex-direction:column; align-items:center; justify-content:center; color:#202020; font-size:11px; text-decoration:none; gap:3px; }
 .nav-item ion-icon { font-size:22px; }
